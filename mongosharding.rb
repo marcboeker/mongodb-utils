@@ -30,7 +30,7 @@ class MongoS < MongoProcess
 
   def start
     config_servers = @config_servers.map { |c| c.uri }.join(',')
-    run_command("mongos --configdb #{config_servers} --port #{@port} --chunkSize 1")
+    run_command("mongos --configdb #{config_servers} --port #{@port} --chunkSize 16")
     sleep 10
   end
 
@@ -89,7 +89,7 @@ class MongoConfig < MongoProcess
   attr_reader :host, :port
 
   def start
-    run_command("mongod --configsvr --dbpath #{@path} --bind_ip #{host} --port #{@port}")
+    run_command("mongod --configsvr --dbpath #{@path} --bind_ip #{host} --port #{@port} --rest")
   end
 
   def uri
@@ -124,6 +124,13 @@ class ReplicaSet
     "rs#{@set}/#{hosts}"
   end
 
+  def cleanup
+    FileUtils.rm_rf(@base_path)
+
+    `killall mongod`
+    `killall mongos`
+  end
+
   protected
 
   def start_mongod(host, i)
@@ -146,6 +153,7 @@ class ReplicaSet
     conf = { _id: "rs#{@set}", members: as_config_object }
 
     con = connect_to_first_member
+    p conf
     con['admin'].command({ replSetInitiate: conf })
   end
 
@@ -163,6 +171,7 @@ class ShardingCluster
     @standalone_members = opts[:standalone_members]
     @db = opts[:db]
     @collections = opts[:collections]
+    @indexes = opts[:indexes]
 
     @con = nil
     @started_config_servers = []
@@ -190,6 +199,7 @@ class ShardingCluster
     end
 
     enable_sharding
+    create_indexes if @indexes
     shard_collection
   end
 
@@ -250,6 +260,12 @@ class ShardingCluster
     @con['admin'].command({ enableSharding: @db })
   end
 
+  def create_indexes
+    @indexes.each do |item|
+      @con[@db][item[:collection]].ensure_index(item[:index])
+    end
+  end
+
   def shard_collection
     @collections.each do |item|
       @con['admin'].command({ shardCollection: "#{@db}.#{item[:collection]}", key: item[:key] })
@@ -265,7 +281,18 @@ s = ShardingCluster.new(
   #standalone_members: ['127.0.0.1'] * 3,
   db: 'test', # use 'test' db
   collections: [{ collection: 'logs', key: { number: 1 } }] # shard the collection 'logs' with 'number' as shard key
+  #indexes: [{ collection: 'logs', index: { number: 'hashed' } }],
+  #collections: [{ collection: 'logs', key: { number: 'hashed' } }] # shard the collection 'logs' with 'number' as shard key
 )
 
 s.cleanup
 s.start
+
+# r = ReplicaSet.new(
+#   '/data', # where all the data directories are created
+#   0,
+#   ['127.0.0.1'] * 3, # start 3 replicas
+# )
+
+# r.cleanup
+# r.start

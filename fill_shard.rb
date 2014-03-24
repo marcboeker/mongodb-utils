@@ -1,8 +1,12 @@
 require 'mongo'
 
-con = Mongo::MongoClient.new('127.0.0.1', 30000)
-$db = con['test']
-$col = $db['logs']
+def connect
+  con = Mongo::MongoClient.new('127.0.0.1', '30000')
+  $db = con['test']
+  $col = $db['logs']
+end
+
+connect
 
 def insert_data
   payload = 'x' * 1024# * 128
@@ -20,10 +24,14 @@ def query
 end
 
 def insert_continuously
-  payload = 'x' * 1024 * 1024
+  payload = 'x' * 1024 * 1024 * 2
   i = 0
   while true
-    $col.insert({ date: Time.now, number: i, data: payload })
+    begin
+      $col.insert({ date: Time.now, number: i, data: payload })
+    rescue Mongo::ConnectionFailure
+      connect
+    end
     #$db.get_last_error(w: 3)
     puts i
 
@@ -31,6 +39,6 @@ def insert_continuously
   end
 end
 
-#insert_data
+insert_data
 #query
-insert_continuously
+#insert_continuously
